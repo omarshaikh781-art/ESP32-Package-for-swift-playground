@@ -30,7 +30,6 @@ public final class SupabaseFixedClient: @unchecked Sendable {
         request.httpMethod = method
         request.httpBody = body
         request.setValue(apiKey, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         if body != nil {
