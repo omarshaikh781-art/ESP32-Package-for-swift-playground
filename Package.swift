@@ -2,19 +2,22 @@
 import PackageDescription
 
 let package = Package(
-    name: "ESP32Connector",
+    name: "SupabaseFixedPackageUnofficial",
     platforms: [
-        .iOS(.v16)
+        .iOS(.v16),
+        .macOS(.v13),
+        .tvOS(.v16),
+        .watchOS(.v9)
     ],
     products: [
         .library(
-            name: "ESP32Connector",
-            targets: ["ESP32Connector"]
+            name: "SupabaseFixedPackageUnofficial",
+            targets: ["SupabaseFixedPackageUnofficial"]
         )
     ],
     targets: [
         .target(
-            name: "ESP32Connector"
+            name: "SupabaseFixedPackageUnofficial"
         )
     ]
 )
