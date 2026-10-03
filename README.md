@@ -1,6 +1,6 @@
 # Supabase Fixed Package — Unofficial
 
-Version **1.0.0** — lightweight Supabase-compatible Swift package for Swift Playgrounds and SwiftUI apps.
+Version **1.1.1** — lightweight Supabase-compatible Swift package for Swift Playgrounds and SwiftUI apps.
 
 ## Package
 - Swift tools: 5.9
@@ -14,7 +14,7 @@ Repository:
 
 `https://github.com/omarshaikh781-art/ESP32-Package-for-swift-playground`
 
-Use version **1.0.0**.
+Use version **1.1.1**.
 
 Then:
 
@@ -22,11 +22,24 @@ Then:
 import SupabaseFixedPackageUnofficial
 ```
 
-## Included in 1.0.0
+## Included
+
+### Auth
+- Email/password sign-up
+- Email/password sign-in
+
+### PostgREST
+- Generic HTTP requests
+- SELECT
+- INSERT
 
 ### Realtime
-
-Version 1.1.0 adds a lightweight WebSocket-based Supabase Realtime client for Postgres Changes. It supports INSERT, UPDATE, and DELETE subscriptions without external Swift dependencies.
+- WebSocket connection to Supabase Realtime
+- Postgres Changes
+- INSERT, UPDATE, DELETE, or all events
+- Heartbeats
+- Clean disconnect / channel leave
+- No external dependencies
 
 Example:
 
@@ -38,7 +51,7 @@ let realtime = SupabaseFixedRealtime(
 
 Task {
     do {
-        try await realtime.subscribe(table: "your_table") { event in
+        try await realtime.subscribe(table: "sensor_readings") { event in
             print(event.event)
             print(event.record)
         }
@@ -48,16 +61,9 @@ Task {
 }
 ```
 
-Enable Realtime for the table in your Supabase project and configure its Postgres replication/publication settings as required by Supabase.
+Enable Realtime/Postgres Changes for the table in your Supabase project.
 
-
-- Generic HTTP requests
-- PostgREST SELECT
-- PostgREST INSERT
-- Supabase Auth sign-in
-- Supabase Auth sign-up
-
-## Example
+## Basic REST example
 
 ```swift
 let supabase = SupabaseFixedClient(
