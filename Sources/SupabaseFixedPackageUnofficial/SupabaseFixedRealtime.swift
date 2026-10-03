@@ -1,9 +1,9 @@
 import Foundation
 
-/// A lightweight Supabase Realtime client using Apple's URLSessionWebSocketTask.
+/// Lightweight Supabase Realtime client for Postgres Changes.
 ///
-/// This implementation supports Postgres Changes subscriptions for INSERT,
-/// UPDATE, and DELETE events without adding external Swift dependencies.
+/// Uses Supabase Realtime protocol 1.0.0 and Apple's URLSessionWebSocketTask.
+/// No external Swift package dependencies are required.
 public final class SupabaseFixedRealtime: @unchecked Sendable {
     public let projectURL: URL
     public let apiKey: String
@@ -26,13 +26,7 @@ public final class SupabaseFixedRealtime: @unchecked Sendable {
         self.session = session
     }
 
-    /// Connects to Supabase Realtime and subscribes to Postgres changes.
-    ///
-    /// - Parameters:
-    ///   - schema: Usually "public".
-    ///   - table: The table to watch.
-    ///   - events: Events to receive. Use ["*"] for INSERT, UPDATE and DELETE.
-    ///   - onEvent: Called whenever a matching database change arrives.
+    /// Subscribes to INSERT, UPDATE, DELETE, or all Postgres changes.
     public func subscribe(
         schema: String = "public",
         table: String,
@@ -45,47 +39,76 @@ public final class SupabaseFixedRealtime: @unchecked Sendable {
             throw SupabaseRealtimeError.invalidURL
         }
 
+        let topic = "realtime:(table)"
+        let ref = UUID().uuidString
+
         callback = onEvent
-        channelTopic = "realtime:\(schema):\(table)"
-        joinRef = UUID().uuidString
+        channelTopic = topic
+        joinRef = ref
 
         let task = session.webSocketTask(with: socketURL)
         socket = task
         task.resume()
 
-        let ref = joinRef ?? UUID().uuidString
+        // Start receiving BEFORE phx_join so the join reply cannot be missed.
+        startReceiveLoop()
+        startHeartbeat()
+
+        let postgresChanges: [[String: Any]] = events.map {
+            [
+                "event": $0,
+                "schema": schema,
+                "table": table
+            ]
+        }
+
         let joinPayload: [String: Any] = [
             "config": [
-                "broadcast": ["self": false],
-                "presence": ["key": ""],
-                "postgres_changes": events.map { event in
-                    [
-                        "event": event,
-                        "schema": schema,
-                        "table": table
-                    ]
-                }
+                "broadcast": [
+                    "ack": false,
+                    "self": false
+                ],
+                "presence": [
+                    "enabled": false,
+                    "key": ""
+                ],
+                "postgres_changes": postgresChanges,
+                "private": false
             ],
             "access_token": apiKey
         ]
 
         try await send(
-            topic: channelTopic ?? "realtime:\(schema):\(table)",
+            topic: topic,
             event: "phx_join",
             payload: joinPayload,
-            ref: ref
+            ref: ref,
+            joinRef: ref
         )
-
-        startReceiveLoop()
-        startHeartbeat()
     }
 
-    /// Stops the active Realtime subscription.
+    /// Stops the active subscription and closes the socket.
     public func disconnect() {
         receiveTask?.cancel()
         heartbeatTask?.cancel()
         receiveTask = nil
         heartbeatTask = nil
+
+        if let socket, let topic = channelTopic, let ref = joinRef {
+            let leave: [String: Any] = [
+                "topic": topic,
+                "event": "phx_leave",
+                "payload": [:],
+                "ref": UUID().uuidString,
+                "join_ref": ref
+            ]
+
+            if let data = try? JSONSerialization.data(withJSONObject: leave),
+               let text = String(data: data, encoding: .utf8) {
+                socket.send(.string(text)) { _ in }
+            }
+        }
+
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         callback = nil
@@ -100,14 +123,15 @@ public final class SupabaseFixedRealtime: @unchecked Sendable {
     private func makeSocketURL() -> URL? {
         var components = URLComponents(url: projectURL, resolvingAgainstBaseURL: false)
 
-        guard var scheme = components?.scheme else {
+        guard let scheme = components?.scheme else {
             return nil
         }
 
-        scheme = scheme == "https" ? "wss" : (scheme == "http" ? "ws" : scheme)
-        components?.scheme = scheme
-        components?.path = "/realtime/v1/websocket"
+        components?.scheme =
+            scheme == "https" ? "wss" :
+            scheme == "http" ? "ws" : scheme
 
+        components?.path = "/realtime/v1/websocket"
         components?.queryItems = [
             URLQueryItem(name: "apikey", value: apiKey),
             URLQueryItem(name: "vsn", value: "1.0.0")
@@ -120,21 +144,31 @@ public final class SupabaseFixedRealtime: @unchecked Sendable {
         topic: String,
         event: String,
         payload: [String: Any],
-        ref: String
+        ref: String,
+        joinRef: String?
     ) async throws {
         guard let socket else {
             throw SupabaseRealtimeError.notConnected
         }
 
-        let message: [String: Any] = [
+        var message: [String: Any] = [
             "topic": topic,
             "event": event,
             "payload": payload,
             "ref": ref
         ]
 
+        if let joinRef {
+            message["join_ref"] = joinRef
+        }
+
         let data = try JSONSerialization.data(withJSONObject: message)
-        try await socket.send(.data(data))
+
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw SupabaseRealtimeError.invalidMessage
+        }
+
+        try await socket.send(.string(text))
     }
 
     private func startReceiveLoop() {
@@ -147,16 +181,18 @@ public final class SupabaseFixedRealtime: @unchecked Sendable {
                 do {
                     guard let socket = self.socket else { return }
 
-                    let message = try await socket.receive()
-
-                    switch message {
+                    switch try await socket.receive() {
                     case .data(let data):
-                        self.handle(data: data)
+                        handle(data: data)
+
                     case .string(let string):
-                        guard let data = string.data(using: .utf8) else { continue }
-                        self.handle(data: data)
+                        guard let data = string.data(using: .utf8) else {
+                            continue
+                        }
+                        handle(data: data)
+
                     @unknown default:
-                        break
+                        continue
                     }
                 } catch {
                     return
@@ -172,15 +208,16 @@ public final class SupabaseFixedRealtime: @unchecked Sendable {
             guard let self else { return }
 
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(25))
+                try? await Task.sleep(nanoseconds: 25_000_000_000)
                 if Task.isCancelled { return }
 
                 do {
-                    try await self.send(
+                    try await send(
                         topic: "phoenix",
                         event: "heartbeat",
                         payload: [:],
-                        ref: UUID().uuidString
+                        ref: UUID().uuidString,
+                        joinRef: nil
                     )
                 } catch {
                     return
@@ -197,7 +234,8 @@ public final class SupabaseFixedRealtime: @unchecked Sendable {
             return
         }
 
-        if event == "postgres_changes" {
+        switch event {
+        case "postgres_changes":
             let payload = root["payload"] as? [String: Any] ?? [:]
             let dataPayload = payload["data"] as? [String: Any] ?? [:]
 
@@ -209,20 +247,23 @@ public final class SupabaseFixedRealtime: @unchecked Sendable {
             let record = dataPayload["record"] as? [String: Any] ?? [:]
             let oldRecord = dataPayload["old_record"] as? [String: Any] ?? [:]
 
-            let realtimeEvent = SupabaseRealtimeEvent(
-                event: changeEvent,
-                record: record,
-                oldRecord: oldRecord,
-                rawPayload: payload
+            callback?(
+                SupabaseRealtimeEvent(
+                    event: changeEvent,
+                    record: record,
+                    oldRecord: oldRecord,
+                    rawPayload: payload
+                )
             )
 
-            callback?(realtimeEvent)
+        default:
+            break
         }
     }
 }
 
 /// A database change received from Supabase Realtime.
-public struct SupabaseRealtimeEvent: Sendable {
+public struct SupabaseRealtimeEvent: @unchecked Sendable {
     public let event: String
     public let record: [String: Any]
     public let oldRecord: [String: Any]
@@ -243,12 +284,15 @@ public struct SupabaseRealtimeEvent: Sendable {
 
 public enum SupabaseRealtimeError: Error, LocalizedError, Sendable {
     case invalidURL
+    case invalidMessage
     case notConnected
 
     public var errorDescription: String? {
         switch self {
         case .invalidURL:
             return "The Supabase Realtime URL is invalid."
+        case .invalidMessage:
+            return "The Realtime message could not be encoded."
         case .notConnected:
             return "The Supabase Realtime socket is not connected."
         }
