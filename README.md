@@ -24,6 +24,33 @@ import SupabaseFixedPackageUnofficial
 
 ## Included in 1.0.0
 
+### Realtime
+
+Version 1.1.0 adds a lightweight WebSocket-based Supabase Realtime client for Postgres Changes. It supports INSERT, UPDATE, and DELETE subscriptions without external Swift dependencies.
+
+Example:
+
+```swift
+let realtime = SupabaseFixedRealtime(
+    projectURL: URL(string: "https://YOUR_PROJECT.supabase.co")!,
+    apiKey: "YOUR_ANON_OR_PUBLISHABLE_KEY"
+)
+
+Task {
+    do {
+        try await realtime.subscribe(table: "your_table") { event in
+            print(event.event)
+            print(event.record)
+        }
+    } catch {
+        print(error.localizedDescription)
+    }
+}
+```
+
+Enable Realtime for the table in your Supabase project and configure its Postgres replication/publication settings as required by Supabase.
+
+
 - Generic HTTP requests
 - PostgREST SELECT
 - PostgREST INSERT
