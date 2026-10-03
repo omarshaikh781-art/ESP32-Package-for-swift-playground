@@ -17,7 +17,8 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "SupabaseFixedPackageUnofficial"
+            name: "SupabaseFixedPackageUnofficial",
+            path: "Sources/SupabaseFixedPackageUnofficial"
         )
     ]
 )
