@@ -1,42 +1,41 @@
 # Supabase Fixed Package — Unofficial
 
-A lightweight, unofficial Supabase-compatible Swift package designed for Swift Playgrounds and small SwiftUI apps.
+Version **1.0.0** — lightweight Supabase-compatible Swift package for Swift Playgrounds and SwiftUI apps.
 
-## Why this exists
+## Package
+- Swift tools: 5.9
+- iOS: 16+
+- No external Swift package dependencies
+- Module: `SupabaseFixedPackageUnofficial`
 
-The official Supabase Swift package has a large dependency graph that can cause compatibility problems in some Swift Playgrounds projects.
+## Add to Swift Playgrounds
 
-This package uses Foundation and URLSession instead, keeping the dependency footprint small.
+Repository:
 
-## Included
+`https://github.com/omarshaikh781-art/ESP32-Package-for-swift-playground`
 
-- PostgREST SELECT requests
-- PostgREST INSERT requests
-- Supabase Auth sign-in
-- Supabase Auth sign-up
-- Generic REST requests
-- iOS 16+ and other modern Apple platforms
+Use version **1.0.0**.
 
-## Swift Playgrounds
-
-Add this repository as a Swift package dependency:
-
-```
-https://github.com/omarshaikh781-art/ESP32-Package-for-swift-playground
-```
-
-Then import:
+Then:
 
 ```swift
 import SupabaseFixedPackageUnofficial
 ```
 
-Example:
+## Included in 1.0.0
+
+- Generic HTTP requests
+- PostgREST SELECT
+- PostgREST INSERT
+- Supabase Auth sign-in
+- Supabase Auth sign-up
+
+## Example
 
 ```swift
 let supabase = SupabaseFixedClient(
     projectURL: URL(string: "https://YOUR_PROJECT.supabase.co")!,
-    apiKey: "YOUR_ANON_KEY"
+    apiKey: "YOUR_ANON_OR_PUBLISHABLE_KEY"
 )
 
 Task {
@@ -49,12 +48,6 @@ Task {
 }
 ```
 
-## Important
+This is an **unofficial** lightweight client and is not the official Supabase Swift SDK.
 
-This is **unofficial** and is not the official Supabase Swift SDK. It intentionally provides a smaller REST/Auth layer rather than copying the official SDK.
-
-Never put a Supabase service-role key in an app or repository. Use the publishable/anon key intended for client applications and configure Row Level Security correctly.
-
-## Vortex-X
-
-The package is intended to be usable as a lightweight backend layer for the Vortex-X Swift Playgrounds app without pulling in the full official Supabase dependency tree.
+Never put a Supabase service-role key in an app or repository.
