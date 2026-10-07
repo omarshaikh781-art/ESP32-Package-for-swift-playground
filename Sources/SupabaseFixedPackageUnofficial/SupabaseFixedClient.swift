@@ -9,12 +9,32 @@ public final class SupabaseFixedClient: @unchecked Sendable {
     public let apiKey: String
 
     private let session: URLSession
+    private var accessToken: String?
 
     public init(projectURL: URL, apiKey: String, session: URLSession = .shared) {
         self.projectURL = projectURL
         self.apiKey = apiKey
         self.session = session
     }
+
+    // MARK: - Session
+
+    /// Stores the Supabase user's access token for authenticated requests.
+    public func setAccessToken(_ token: String?) {
+        accessToken = token
+    }
+
+    /// Clears the current user's access token.
+    public func clearAccessToken() {
+        accessToken = nil
+    }
+
+    /// True when this client has a Supabase access token.
+    public var isAuthenticated: Bool {
+        accessToken != nil
+    }
+
+    // MARK: - Request
 
     private func makeRequest(
         path: String,
@@ -29,11 +49,22 @@ public final class SupabaseFixedClient: @unchecked Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
+
         request.setValue(apiKey, forHTTPHeaderField: "apikey")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
+        if let accessToken {
+            request.setValue(
+                "Bearer \(accessToken)",
+                forHTTPHeaderField: "Authorization"
+            )
+        }
+
         if body != nil {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(
+                "application/json",
+                forHTTPHeaderField: "Content-Type"
+            )
         }
 
         for (key, value) in extraHeaders {
@@ -43,7 +74,7 @@ public final class SupabaseFixedClient: @unchecked Sendable {
         return request
     }
 
-    /// Performs a PostgREST request.
+    /// Performs an authenticated or unauthenticated Supabase request.
     public func request(
         path: String,
         method: String = "GET",
@@ -66,20 +97,33 @@ public final class SupabaseFixedClient: @unchecked Sendable {
         guard (200...299).contains(http.statusCode) else {
             throw SupabaseFixedError.httpError(
                 statusCode: http.statusCode,
-                message: String(data: data, encoding: .utf8) ?? "Unknown server error"
+                message: String(
+                    data: data,
+                    encoding: .utf8
+                ) ?? "Unknown server error"
             )
         }
 
         return data
     }
 
+    // MARK: - Database
+
     /// Fetches rows from a PostgREST table.
     public func select(
         table: String,
         query: String = "*"
     ) async throws -> Data {
-        let encodedTable = table.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? table
-        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let encodedTable =
+            table.addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed
+            ) ?? table
+
+        let encodedQuery =
+            query.addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed
+            ) ?? query
+
         return try await request(
             path: "/rest/v1/\(encodedTable)?select=\(encodedQuery)"
         )
@@ -90,47 +134,86 @@ public final class SupabaseFixedClient: @unchecked Sendable {
         table: String,
         jsonObject: [String: Any]
     ) async throws -> Data {
-        let data = try JSONSerialization.data(withJSONObject: jsonObject)
+        let data = try JSONSerialization.data(
+            withJSONObject: jsonObject
+        )
+
         return try await request(
             path: "/rest/v1/\(table)",
             method: "POST",
             body: data,
-            headers: ["Prefer": "return=representation"]
+            headers: [
+                "Prefer": "return=representation"
+            ]
         )
     }
 
-    /// Signs in with email and password using Supabase Auth.
+    // MARK: - Auth
+
+    /// Signs in with email and password.
+    ///
+    /// When Supabase returns an access_token, this client stores it
+    /// automatically for later authenticated database requests.
     public func signIn(
         email: String,
         password: String
     ) async throws -> Data {
-        let body = try JSONSerialization.data(withJSONObject: [
-            "email": email,
-            "password": password
-        ])
+        let body = try JSONSerialization.data(
+            withJSONObject: [
+                "email": email,
+                "password": password
+            ]
+        )
 
-        return try await request(
+        let response = try await request(
             path: "/auth/v1/token?grant_type=password",
             method: "POST",
             body: body
         )
+
+        storeAccessToken(from: response)
+
+        return response
     }
 
     /// Creates a new Supabase Auth account.
+    ///
+    /// If the project immediately returns an access_token,
+    /// this client stores it automatically.
     public func signUp(
         email: String,
         password: String
     ) async throws -> Data {
-        let body = try JSONSerialization.data(withJSONObject: [
-            "email": email,
-            "password": password
-        ])
+        let body = try JSONSerialization.data(
+            withJSONObject: [
+                "email": email,
+                "password": password
+            ]
+        )
 
-        return try await request(
+        let response = try await request(
             path: "/auth/v1/signup",
             method: "POST",
             body: body
         )
+
+        storeAccessToken(from: response)
+
+        return response
+    }
+
+    private func storeAccessToken(from data: Data) {
+        guard
+            let json = try? JSONSerialization.jsonObject(
+                with: data
+            ) as? [String: Any],
+            let token = json["access_token"] as? String,
+            !token.isEmpty
+        else {
+            return
+        }
+
+        accessToken = token
     }
 }
 
@@ -143,8 +226,10 @@ public enum SupabaseFixedError: Error, LocalizedError, Sendable {
         switch self {
         case .invalidURL:
             return "The Supabase URL is invalid."
+
         case .invalidResponse:
             return "The server returned an invalid response."
+
         case let .httpError(statusCode, message):
             return "Supabase HTTP \(statusCode): \(message)"
         }
