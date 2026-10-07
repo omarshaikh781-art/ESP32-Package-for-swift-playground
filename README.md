@@ -1,6 +1,6 @@
 # Supabase Fixed Package — Unofficial
 
-Version **1.1.1** — lightweight Supabase-compatible Swift package for Swift Playgrounds and SwiftUI apps.
+Version **1.1.3** — lightweight Supabase-compatible Swift package for Swift Playgrounds and SwiftUI apps.
 
 ## Package
 - Swift tools: 5.9
