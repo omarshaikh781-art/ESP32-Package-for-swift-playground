@@ -7,6 +7,8 @@ import Foundation
 public final class SupabaseFixedRealtime: @unchecked Sendable {
     public let projectURL: URL
     public let apiKey: String
+    /// Optional Supabase Auth access token (JWT). This is not the publishable API key.
+    public var accessToken: String?
 
     private let session: URLSession
     private var socket: URLSessionWebSocketTask?
@@ -19,10 +21,12 @@ public final class SupabaseFixedRealtime: @unchecked Sendable {
     public init(
         projectURL: URL,
         apiKey: String,
+        accessToken: String? = nil,
         session: URLSession = .shared
     ) {
         self.projectURL = projectURL
         self.apiKey = apiKey
+        self.accessToken = accessToken
         self.session = session
     }
 
@@ -39,7 +43,7 @@ public final class SupabaseFixedRealtime: @unchecked Sendable {
             throw SupabaseRealtimeError.invalidURL
         }
 
-        let topic = "realtime:(table)"
+        let topic = "realtime:\(schema):\(table)"
         let ref = UUID().uuidString
 
         callback = onEvent
@@ -62,7 +66,7 @@ public final class SupabaseFixedRealtime: @unchecked Sendable {
             ]
         }
 
-        let joinPayload: [String: Any] = [
+        var joinPayload: [String: Any] = [
             "config": [
                 "broadcast": [
                     "ack": false,
@@ -74,9 +78,15 @@ public final class SupabaseFixedRealtime: @unchecked Sendable {
                 ],
                 "postgres_changes": postgresChanges,
                 "private": false
-            ],
-            "access_token": apiKey
+            ]
         ]
+
+        // The publishable/anon key belongs in the websocket URL's apikey
+        // parameter. Realtime's access_token field must contain the signed-in
+        // user's JWT, never the publishable key.
+        if let accessToken, !accessToken.isEmpty {
+            joinPayload["access_token"] = accessToken
+        }
 
         try await send(
             topic: topic,
